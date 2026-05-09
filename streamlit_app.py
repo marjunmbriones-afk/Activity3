@@ -24,7 +24,6 @@ last_saved_time = 0
 SAVE_COOLDOWN = 5
 
 
-# ---------------- VIDEO PROCESSOR ---------------- #
 class YOLOProcessor(VideoProcessorBase):
     def recv(self, frame):
         global last_saved_time
@@ -83,7 +82,7 @@ class YOLOProcessor(VideoProcessorBase):
         return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
 
-# ---------------- STUN CONFIG (IMPORTANT FIX) ---------------- #
+
 RTC_CONFIGURATION = RTCConfiguration(
     {
         "iceServers": [
@@ -92,7 +91,6 @@ RTC_CONFIGURATION = RTCConfiguration(
     }
 )
 
-# ---------------- STREAMLIT WEBRTC ---------------- #
 webrtc_streamer(
     key="object-detection",
     video_processor_factory=YOLOProcessor,
