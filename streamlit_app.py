@@ -1,5 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer
+from streamlit_webrtc import webrtc_streamer, RTCConfiguration, VideoProcessorBase
 from ultralytics import YOLO
 import av
 import cv2
@@ -21,70 +21,82 @@ def load_model():
 model = load_model()
 
 last_saved_time = 0
-SAVE_COOLDOWN = 5  
+SAVE_COOLDOWN = 5
 
-def video_frame_callback(frame):
-    global last_saved_time
 
-    img = frame.to_ndarray(format="bgr24")
+# ---------------- VIDEO PROCESSOR ---------------- #
+class YOLOProcessor(VideoProcessorBase):
+    def recv(self, frame):
+        global last_saved_time
 
-    results = model.track(img, persist=True, conf=0.5, verbose=False)
-    annotated_frame = results[0].plot()
+        img = frame.to_ndarray(format="bgr24")
 
-    names = model.names
-    counts = {}
-    alert_triggered = False
+        results = model.track(img, persist=True, conf=0.5, verbose=False)
+        annotated_frame = results[0].plot()
 
-    for box in results[0].boxes:
-        cls_id = int(box.cls[0])
-        cls_name = names[cls_id]
+        names = model.names
+        counts = {}
+        alert_triggered = False
 
-        counts[cls_name] = counts.get(cls_name, 0) + 1
+        for box in results[0].boxes:
+            cls_id = int(box.cls[0])
+            cls_name = names[cls_id]
 
-        if enable_alert and cls_name == target_class:
-            alert_triggered = True
+            counts[cls_name] = counts.get(cls_name, 0) + 1
 
-    y_offset = 30
-    for cls_name, count in counts.items():
-        cv2.putText(
-            annotated_frame,
-            f"{cls_name}: {count}",
-            (10, y_offset),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2
-        )
-        y_offset += 25
+            if enable_alert and cls_name == target_class:
+                alert_triggered = True
 
-    current_time = time.time()
-
-    if alert_triggered:
-        cv2.putText(
-            annotated_frame,
-            f"⚠ ALERT: {target_class} detected!",
-            (10, annotated_frame.shape[0] - 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.9,
-            (0, 0, 255),
-            3
-        )
-
-        if current_time - last_saved_time > SAVE_COOLDOWN:
-            filename = os.path.join(
-                SAVE_DIR, f"{target_class}_{int(current_time)}.jpg"
+        y_offset = 30
+        for cls_name, count in counts.items():
+            cv2.putText(
+                annotated_frame,
+                f"{cls_name}: {count}",
+                (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2
             )
-            cv2.imwrite(filename, annotated_frame)
-            last_saved_time = current_time
+            y_offset += 25
 
-    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
+        current_time = time.time()
 
+        if alert_triggered:
+            cv2.putText(
+                annotated_frame,
+                f"⚠ ALERT: {target_class} detected!",
+                (10, annotated_frame.shape[0] - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.9,
+                (0, 0, 255),
+                3
+            )
+
+            if current_time - last_saved_time > SAVE_COOLDOWN:
+                filename = os.path.join(
+                    SAVE_DIR, f"{target_class}_{int(current_time)}.jpg"
+                )
+                cv2.imwrite(filename, annotated_frame)
+                last_saved_time = current_time
+
+        return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
+
+
+# ---------------- STUN CONFIG (IMPORTANT FIX) ---------------- #
+RTC_CONFIGURATION = RTCConfiguration(
+    {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]}
+        ]
+    }
+)
+
+# ---------------- STREAMLIT WEBRTC ---------------- #
 webrtc_streamer(
     key="object-detection",
-    video_frame_callback=video_frame_callback,
-    async_processing=True,
-    rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-    },
+    video_processor_factory=YOLOProcessor,
+    rtc_configuration=RTC_CONFIGURATION,
     media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
 )
